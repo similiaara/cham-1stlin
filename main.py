@@ -53,7 +53,8 @@ def check_url_safety(api_key, url):
 # Function to read links from the txt file
 def get_links(file_path):
     with open(file_path, 'r') as file:
-        return [line.strip() for line in file.readlines()]
+        # Filter links to include only those that start with 'https://'
+        return [line.strip() for line in file.readlines() if line.strip().startswith('https://')]
 
 
 # Function to update the raw HTML file with the Base64-encoded safe link
